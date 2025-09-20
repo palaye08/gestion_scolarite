@@ -1,4 +1,4 @@
-# Utiliser une image Java officielle comme base
+# Utiliser une image Java 17 officielle comme base
 FROM openjdk:17-jdk-slim as build
 
 # Définir le répertoire de travail

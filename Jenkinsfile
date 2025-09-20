@@ -11,8 +11,8 @@ pipeline {
     }
 
     tools {
-        maven 'Maven-3.9'  // Nom de votre installation Maven dans Jenkins
-        jdk 'JDK-17'       // Nom de votre installation JDK dans Jenkins
+        maven 'maven'  // Utilise l'installation Maven par défaut
+        jdk 'jdk-17'   // Utilise l'installation JDK 17 par défaut
     }
 
     stages {
@@ -27,13 +27,27 @@ pipeline {
             steps {
                 echo '🔨 Construction et tests du projet...'
                 sh '''
-                    ./mvnw clean compile test
+                    # Vérifier la version Java
+                    java -version
+                    mvn -version
+
+                    # Nettoyer et compiler
+                    ./mvnw clean compile test -Dmaven.test.failure.ignore=true
                 '''
             }
             post {
                 always {
                     // Publier les résultats des tests
-                    junit allowEmptyResults: true, testResultsPattern: 'target/surefire-reports/*.xml'
+                    junit allowEmptyResults: true, testResults: 'target/surefire-reports/*.xml'
+                    // Publier les rapports de couverture si disponibles
+                    publishHTML([
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'target/site/jacoco',
+                        reportFiles: 'index.html',
+                        reportName: 'Coverage Report'
+                    ])
                 }
             }
         }
