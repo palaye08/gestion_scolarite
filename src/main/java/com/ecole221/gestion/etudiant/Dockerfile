@@ -36,15 +36,16 @@ RUN chown spring:spring app.jar
 # Changer vers l'utilisateur non-root
 USER spring
 
-# Exposer le port de l'application
-EXPOSE 8083
+# Exposer le port de l'application (Render utilise le port 10000)
+EXPOSE 10000
 
 # Définir les variables d'environnement pour optimiser la JVM
 ENV JAVA_OPTS="-Xmx512m -Xms256m -Djava.security.egd=file:/dev/./urandom"
+ENV SPRING_PROFILES_ACTIVE=docker
 
 # Point d'entrée pour démarrer l'application
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
 
 # Health check pour vérifier si l'application est en cours d'exécution
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8083/actuator/health || exit 1
+  CMD curl -f http://localhost:10000/api/actuator/health || exit 1

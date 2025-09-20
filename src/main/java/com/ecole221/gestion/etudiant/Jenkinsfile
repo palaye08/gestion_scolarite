@@ -3,9 +3,10 @@ pipeline {
 
     environment {
         // Variables d'environnement
-        DOCKER_HUB_REPO = 'votre-username/etudiant-app'  // Remplacez par votre repo Docker Hub
-        DOCKER_HUB_CREDENTIALS = 'dockerhub-credentials' // ID des credentials Docker Hub dans Jenkins
-        RENDER_DEPLOY_HOOK = 'render-deploy-hook'       // ID du webhook de déploiement Render
+        DOCKER_HUB_REPO = 'laye769/gestion_scolarite'   // Votre repo Docker Hub
+        DOCKER_HUB_CREDENTIALS = 'docker-hub-new'       // ID des credentials Docker Hub dans Jenkins
+        RENDER_DEPLOY_HOOK = 'render-webhook'           // ID du webhook de déploiement Render
+        RENDER_APP_URL = 'render-app-url'               // ID de l'URL de votre app Render
         MAVEN_OPTS = '-Dmaven.repo.local=/tmp/.m2/repository'
     }
 
@@ -95,11 +96,21 @@ pipeline {
                 echo '🚀 Déploiement sur Render...'
                 script {
                     withCredentials([string(credentialsId: RENDER_DEPLOY_HOOK, variable: 'RENDER_WEBHOOK')]) {
-                        sh '''
-                            curl -X POST "$RENDER_WEBHOOK" \
-                                -H "Content-Type: application/json" \
-                                -d '{"branch": "main"}'
-                        '''
+                        def response = sh(
+                            script: '''
+                                curl -X POST "$RENDER_WEBHOOK" \
+                                    -H "Content-Type: application/json" \
+                                    -d '{"branch": "main"}' \
+                                    -w "HTTP_CODE:%{http_code}"
+                            ''',
+                            returnStdout: true
+                        ).trim()
+
+                        echo "Réponse du webhook Render: ${response}"
+
+                        if (!response.contains("HTTP_CODE:200")) {
+                            error "Échec du déclenchement du déploiement Render"
+                        }
                     }
                 }
             }
@@ -109,15 +120,80 @@ pipeline {
             steps {
                 echo '✅ Vérification du déploiement...'
                 script {
-                    // Attendre que le déploiement soit effectué
-                    sleep(time: 60, unit: 'SECONDS')
+                    withCredentials([string(credentialsId: RENDER_APP_URL, variable: 'APP_URL')]) {
+                        echo "Attente du déploiement (90 secondes)..."
+                        sleep(time: 90, unit: 'SECONDS')
 
-                    // Test simple de l'API (remplacez par votre URL Render)
-                    sh '''
-                        # Remplacez YOUR_RENDER_URL par votre vraie URL Render
-                        # curl -f https://YOUR_RENDER_URL/actuator/health || echo "Déploiement en cours..."
+                        // Tentatives de vérification du health check
+                        def maxRetries = 5
+                        def retryCount = 0
+                        def healthCheckPassed = false
+
+                        while (retryCount < maxRetries && !healthCheckPassed) {
+                            try {
+                                retryCount++
+                                echo "Tentative ${retryCount}/${maxRetries} - Vérification du health check..."
+
+                                def healthResponse = sh(
+                                    script: """
+                                        curl -f -s -o /dev/null -w "HTTP_CODE:%{http_code}" \
+                                        "${APP_URL}/api/actuator/health" \
+                                        --connect-timeout 30 \
+                                        --max-time 60
+                                    """,
+                                    returnStdout: true
+                                ).trim()
+
+                                echo "Réponse health check: ${healthResponse}"
+
+                                if (healthResponse.contains("HTTP_CODE:200")) {
+                                    healthCheckPassed = true
+                                    echo "✅ Health check réussi!"
+                                } else {
+                                    echo "⚠️ Health check échoué, nouvelle tentative dans 30 secondes..."
+                                    sleep(time: 30, unit: 'SECONDS')
+                                }
+
+                            } catch (Exception e) {
+                                echo "⚠️ Erreur lors du health check: ${e.getMessage()}"
+                                if (retryCount < maxRetries) {
+                                    echo "Nouvelle tentative dans 30 secondes..."
+                                    sleep(time: 30, unit: 'SECONDS')
+                                }
+                            }
+                        }
+
+                        if (!healthCheckPassed) {
+                            echo "⚠️ Le health check a échoué après ${maxRetries} tentatives"
+                            echo "Cela peut indiquer que l'application met plus de temps à démarrer"
+                            echo "Vérifiez manuellement: ${APP_URL}/api/actuator/health"
+                        }
+
+                        // Vérification de l'API principale
+                        try {
+                            echo "Vérification de l'accès à l'API principale..."
+                            def apiResponse = sh(
+                                script: """
+                                    curl -f -s -o /dev/null -w "HTTP_CODE:%{http_code}" \
+                                    "${APP_URL}/api" \
+                                    --connect-timeout 30 \
+                                    --max-time 60
+                                """,
+                                returnStdout: true
+                            ).trim()
+
+                            echo "Réponse API: ${apiResponse}"
+
+                        } catch (Exception e) {
+                            echo "⚠️ L'API principale n'est pas encore accessible: ${e.getMessage()}"
+                        }
+
+                        echo "🎯 URLs de l'application:"
+                        echo "   - API: ${APP_URL}/api"
+                        echo "   - Health: ${APP_URL}/api/actuator/health"
+                        echo "   - Swagger: ${APP_URL}/api/swagger-ui.html"
                         echo "✅ Pipeline terminé avec succès!"
-                    '''
+                    }
                 }
             }
         }
@@ -132,12 +208,19 @@ pipeline {
 
         success {
             echo '🎉 Pipeline exécuté avec succès!'
+            script {
+                withCredentials([string(credentialsId: RENDER_APP_URL, variable: 'APP_URL')]) {
+                    echo "🚀 Déploiement terminé!"
+                    echo "📱 Votre application est disponible à: ${APP_URL}"
+                    echo "📖 Documentation API: ${APP_URL}/api/swagger-ui.html"
+                }
+            }
             // Vous pouvez ajouter des notifications Slack/Email ici
             /*
             slackSend(
                 channel: '#devops',
                 color: 'good',
-                message: "✅ Déploiement réussi de ${env.JOB_NAME} - Build #${env.BUILD_NUMBER}"
+                message: "✅ Déploiement réussi de ${env.JOB_NAME} - Build #${env.BUILD_NUMBER}\n🔗 App: ${APP_URL}"
             )
             */
         }
