@@ -1,37 +1,87 @@
 package com.ecole221.gestion.etudiant.model;
 
-import java.time.LocalDate;
-
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+
+import java.time.LocalDate;
+import java.util.Collection;
+import java.util.List;
 
 @Entity
 @Data
-@AllArgsConstructor
-@NoArgsConstructor
 @Builder
-public class Etudiant {
+@NoArgsConstructor
+@AllArgsConstructor
+@Table(name = "etudiants")
+public class Etudiant implements UserDetails {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    @Column(length = 25,unique = true)
+
+    @Column(unique = true)
     private String matricule;
-    @Column(length = 50)
+
+    @Column(nullable = false)
     private String nom;
-    @Column(length = 100)
+
+    @Column(nullable = false)
     private String prenom;
-    @Column(length = 100, unique = true)
+
+    @Column(nullable = false, unique = true)
     private String email;
-    @Column(length = 15, unique = true)
+
+    @Column(unique = true)
     private String telephone;
+
     private String adresse;
+
     private LocalDate dateNaissance;
+
     private String lieuNaissance;
+
+    @Column(nullable = false)
+    private String password;
+
+    // Implémentation de UserDetails
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return List.of(new SimpleGrantedAuthority("ROLE_STUDENT"));
+    }
+
+    @Override
+    public String getPassword() {
+        return password;
+    }
+
+    @Override
+    public String getUsername() {
+        return email; // L'email sert d'username
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return true;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return true;
+    }
 }

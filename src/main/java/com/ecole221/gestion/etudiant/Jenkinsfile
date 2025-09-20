@@ -1,0 +1,157 @@
+pipeline {
+    agent any
+
+    environment {
+        // Variables d'environnement
+        DOCKER_HUB_REPO = 'votre-username/etudiant-app'  // Remplacez par votre repo Docker Hub
+        DOCKER_HUB_CREDENTIALS = 'dockerhub-credentials' // ID des credentials Docker Hub dans Jenkins
+        RENDER_DEPLOY_HOOK = 'render-deploy-hook'       // ID du webhook de déploiement Render
+        MAVEN_OPTS = '-Dmaven.repo.local=/tmp/.m2/repository'
+    }
+
+    tools {
+        maven 'Maven-3.9'  // Nom de votre installation Maven dans Jenkins
+        jdk 'JDK-17'       // Nom de votre installation JDK dans Jenkins
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo '🔄 Récupération du code source...'
+                checkout scm
+            }
+        }
+
+        stage('Build & Test') {
+            steps {
+                echo '🔨 Construction et tests du projet...'
+                sh '''
+                    ./mvnw clean compile test
+                '''
+            }
+            post {
+                always {
+                    // Publier les résultats des tests
+                    junit allowEmptyResults: true, testResultsPattern: 'target/surefire-reports/*.xml'
+                }
+            }
+        }
+
+        stage('Package') {
+            steps {
+                echo '📦 Création du package JAR...'
+                sh '''
+                    ./mvnw clean package -DskipTests
+                '''
+
+                // Archiver l'artefact
+                archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                echo '🐳 Construction de l\'image Docker...'
+                script {
+                    def imageName = "${DOCKER_HUB_REPO}:${BUILD_NUMBER}"
+                    def latestImageName = "${DOCKER_HUB_REPO}:latest"
+
+                    // Construire l'image Docker
+                    dockerImage = docker.build(imageName)
+
+                    // Tagger comme latest
+                    sh "docker tag ${imageName} ${latestImageName}"
+                }
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                echo '📤 Push vers Docker Hub...'
+                script {
+                    docker.withRegistry('https://registry.hub.docker.com', DOCKER_HUB_CREDENTIALS) {
+                        // Push avec le numéro de build
+                        dockerImage.push("${BUILD_NUMBER}")
+                        // Push latest
+                        dockerImage.push("latest")
+                    }
+                }
+            }
+        }
+
+        stage('Clean Local Images') {
+            steps {
+                echo '🧹 Nettoyage des images locales...'
+                sh '''
+                    docker rmi ${DOCKER_HUB_REPO}:${BUILD_NUMBER} || true
+                    docker rmi ${DOCKER_HUB_REPO}:latest || true
+                    docker system prune -f || true
+                '''
+            }
+        }
+
+        stage('Deploy to Render') {
+            steps {
+                echo '🚀 Déploiement sur Render...'
+                script {
+                    withCredentials([string(credentialsId: RENDER_DEPLOY_HOOK, variable: 'RENDER_WEBHOOK')]) {
+                        sh '''
+                            curl -X POST "$RENDER_WEBHOOK" \
+                                -H "Content-Type: application/json" \
+                                -d '{"branch": "main"}'
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                echo '✅ Vérification du déploiement...'
+                script {
+                    // Attendre que le déploiement soit effectué
+                    sleep(time: 60, unit: 'SECONDS')
+
+                    // Test simple de l'API (remplacez par votre URL Render)
+                    sh '''
+                        # Remplacez YOUR_RENDER_URL par votre vraie URL Render
+                        # curl -f https://YOUR_RENDER_URL/actuator/health || echo "Déploiement en cours..."
+                        echo "✅ Pipeline terminé avec succès!"
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo '🔄 Nettoyage final...'
+            // Nettoyer le workspace
+            deleteDir()
+        }
+
+        success {
+            echo '🎉 Pipeline exécuté avec succès!'
+            // Vous pouvez ajouter des notifications Slack/Email ici
+            /*
+            slackSend(
+                channel: '#devops',
+                color: 'good',
+                message: "✅ Déploiement réussi de ${env.JOB_NAME} - Build #${env.BUILD_NUMBER}"
+            )
+            */
+        }
+
+        failure {
+            echo '❌ Pipeline échoué!'
+            // Notifications en cas d'échec
+            /*
+            slackSend(
+                channel: '#devops',
+                color: 'danger',
+                message: "❌ Échec du déploiement de ${env.JOB_NAME} - Build #${env.BUILD_NUMBER}"
+            )
+            */
+        }
+    }
+}

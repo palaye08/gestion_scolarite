@@ -8,5 +8,8 @@ public interface EtudiantRepository extends JpaRepository<Etudiant, Long> {
     Etudiant findByMatricule(String matricule);
     Etudiant findByEmail(String email);
     Etudiant findByTelephone(String telephone);
+    boolean existsByEmail(String email);
+    boolean existsByMatricule(String matricule);
+    boolean existsByTelephone(String telephone);
 
 }
